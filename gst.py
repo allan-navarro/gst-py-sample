@@ -40,8 +40,9 @@ def main(args):
     GObject.threads_init()
     Gst.init(None)
 
-    pipeline_str = f'filesrc location={file}  ! queue ! qtdemux ! video/x-h264 ! ' + \
-        ' h264parse ! avdec_h264 ! textoverlay name=textoverlay0 ! videoconvert ! xvimagesink'
+    pipeline_str = f'filesrc location={file}  ! queue ! qtdemux ! video/x-h264 ! ' \
+        ' h264parse ! avdec_h264 ! textoverlay name=textoverlay0 ! videoconvert ! xvimagesink ' \
+        ' sync=false enable-last-sample=false'
 
     pipeline = Gst.parse_launch(pipeline_str)
     if not pipeline:
