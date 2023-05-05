@@ -1,13 +1,14 @@
 import sys
 import ctypes
-from datetime import timedelta
+import threading
 from datetime import datetime
+import time
 
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
 
-
+end=False
 def bus_call(bus, message, loop):
     t = message.type
     if t == Gst.MessageType.EOS:
@@ -20,17 +21,19 @@ def bus_call(bus, message, loop):
     return True
 
 
-def overlay_sink_probe_cb(pad: Gst.Pad, info: Gst.PadProbeInfo, data) -> Gst.PadProbeReturn:
+def flip(conv):
+    global end
+    flip_method = False
+    while not end:
+        conv.set_property('flip-method', int(flip_method))
+        flip_method = not flip_method
+        
+        time.sleep(1)
 
-
-    str = datetime.now().isoformat(timespec='microseconds')
-
-    data.set_property('text', str)
-
-    return Gst.PadProbeReturn.OK
 
 
 def main(args):
+    global end
     if len(args) != 2:
         sys.stderr.write("usage: %s <media file>\n" % args[0])
         sys.exit(1)
@@ -40,8 +43,8 @@ def main(args):
     GObject.threads_init()
     Gst.init(None)
 
-    pipeline_str = f'filesrc location={file}  ! queue ! qtdemux ! video/x-h264 ! ' \
-        ' h264parse ! avdec_h264 ! textoverlay name=textoverlay0 ! videoconvert ! xvimagesink ' \
+    pipeline_str = f'filesrc location={file}  ! queue ! qtdemux ! ' \
+        ' h264parse ! nvv4l2decoder ! nvvidconv name=conv ! nvoverlaysink ' \
         ' sync=false enable-last-sample=false'
 
     pipeline = Gst.parse_launch(pipeline_str)
@@ -55,14 +58,13 @@ def main(args):
         sys.stderr.write('could not get h264parse from pipeline\n')
         sys.exit(1)
 
-    textoverlay = pipeline.get_by_name("textoverlay0")
-    if not textoverlay:
-        sys.stderr.write('could not get textoverlay from pipeline\n')
+    nvvidconv = pipeline.get_by_name("conv")
+    if not nvvidconv:
+        sys.stderr.write('could not get nvvidconv from pipeline\n')
         sys.exit(1)
 
-    video_sink_pad_overlay = h264parse.get_static_pad('sink')
-    probe_sink_overlay_id = video_sink_pad_overlay.add_probe(
-        Gst.PadProbeType.BUFFER, overlay_sink_probe_cb, textoverlay)
+    t = threading.Timer(0, flip, [nvvidconv])
+    t.start()
 
     # create and event loop and feed gstreamer bus mesages to it
     loop = GObject.MainLoop()
@@ -77,6 +79,7 @@ def main(args):
         loop.run()
     except:
         pass
+    end = True
 
     # cleanup
     pipeline.set_state(Gst.State.NULL)
